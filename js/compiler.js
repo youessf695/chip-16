@@ -302,25 +302,27 @@ Compiler.prototype.jump = function(addr, dest) {
 }
 
 Compiler.prototype.isRegister = function(name) {
-	if (!name && (name != 0)) { name = this.peek(); }
-	if (typeof name != "string") { return false; }
-	if (name in this.aliases) { return true; }
-	name = name.toUpperCase();
-	if (name.length != 2) { return false; }
-	if (name[0] != 'V') { return false; }
-	return "0123456789ABCDEF".indexOf(name[1]) >= 0;
-}
+		if (!name && (name != 0)) { name = this.peek(); }
+		if (typeof name != "string") { return false; }
+		if (name in this.aliases) { return true; }
+		name = name.toUpperCase();
+        // [CHIP-16 MOD]: السماح بمسجلات من V0 حتى V1F (32 مسجل)
+		if (name[0] !== 'V') { return false; }
+		var regNum = parseInt(name.substring(1), 16);
+		return !isNaN(regNum) && regNum >= 0 && regNum < 32;
+	}
 
 Compiler.prototype.register = function(name) {
 	if (!name) { name = this.next(); }
 	if (!this.isRegister(name)) {
-		throw "Expected register, got '" + name + "'.";
+			throw "Expected register, got '" + name + "'.";
 	}
 	if (name in this.aliases) {
 		return this.aliases[name];
 	}
 	name = name.toUpperCase();
-	return "0123456789ABCDEF".indexOf(name[1]);
+    // [CHIP-16 MOD]: إرجاع القيمة الرقمية للمسجل الجديد
+	return parseInt(name.substring(1), 16);
 }
 
 Compiler.prototype.expect = function(token) {
