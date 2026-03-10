@@ -306,22 +306,23 @@ Compiler.prototype.isRegister = function(name) {
 		if (typeof name != "string") { return false; }
 		if (name in this.aliases) { return true; }
 		name = name.toUpperCase();
-        // [CHIP-16 MOD]: السماح بمسجلات من V0 حتى V1F (32 مسجل)
-		if (name[0] !== 'V') { return false; }
+		if (name.length < 2 || name.length > 3) { return false; }
+		if (name[0] != 'V') { return false; }
+		// [CHIP-16 MOD]: دعم المسجلات من V0 إلى V1F
 		var regNum = parseInt(name.substring(1), 16);
-		return !isNaN(regNum) && regNum >= 0 && regNum < 32;
+		return !isNaN(regNum) && regNum >= 0 && regNum <= 31;
 	}
 
 Compiler.prototype.register = function(name) {
 	if (!name) { name = this.next(); }
 	if (!this.isRegister(name)) {
-			throw "Expected register, got '" + name + "'.";
+		throw "Expected register, got '" + name + "'.";
 	}
 	if (name in this.aliases) {
 		return this.aliases[name];
 	}
 	name = name.toUpperCase();
-    // [CHIP-16 MOD]: إرجاع القيمة الرقمية للمسجل الجديد
+	// [CHIP-16 MOD]: إرجاع رقم المسجل (0 إلى 31)
 	return parseInt(name.substring(1), 16);
 }
 
@@ -470,6 +471,19 @@ Compiler.prototype.shortValue = function(nn) {
 	}
 	return (nn & 0xFF);
 }
+
+Compiler.prototype.wordValue = function(nnn) {
+		// [CHIP-16 MOD]: دالة جديدة لدعم الأرقام 16-بت للمسجلات
+		if (!nnn && (nnn != 0)) { nnn = this.next(); }
+		if (typeof nnn != "number") {
+			this.valueFail('a 16-bit',nnn,true);
+			nnn = this.constants[nnn];
+		}
+		if ((typeof nnn != "number") || (nnn < -32768) || (nnn > 65535)) {
+			throw "Argument does not fit in 16 bits- must be in range [-32768, 65535].";
+		}
+		return (nnn & 0xFFFF);
+	}
 
 Compiler.prototype.tinyValue = function() {
 	// sprite length, unpack high nybble
