@@ -262,26 +262,28 @@ function Emulator() {
 	this.buzzPitch   = function(pitch) {}
 
 	this.init = function(rom) {
-		// [CHIP-16 MOD]: توسيع الذاكرة لتصبح 1 ميجابايت (1024 * 1024) بدلاً من 64 كيلوبايت
+		// [CHIP-16 MOD]: ذاكرة عملاقة 1 ميجابايت
 		this.m = new Uint8Array(1048576);
 
 		this.p = [[], []];
-		// [CHIP-16 MOD]: توسيع الشاشة لتصبح 320x240 (سنعدل محرك الرسم لاحقاً، لكن نحجز المساحة الآن)
+		// [CHIP-16 MOD]: تجهيز دقة شاشة 320x240 (سنفعل محرك الرسم لاحقاً)
 		for(var z = 0; z < 320*240; z++) { this.p[0][z] = 0; this.p[1][z] = 0; }
 
 		// initialize memory
 		var font = fontsets[this.fontStyle];
+		// تهيئة الشاشة القديمة كخلفية توافقية
+		for(var z = 0; z < 32*64;            z++) { this.p[0][z] = 0; this.p[1][z] = 0; }
 		for(var z = 0; z < font.small.length;z++) { this.m[z] = font.small[z]; }
 		for(var z = 0; z < font.big.length;  z++) { this.m[z + font.small.length] = font.big[z]; }
 		for(var z = 0; z < rom.rom.length;   z++) { this.m[0x200+z] = rom.rom[z]; }
 		
-        // [CHIP-16 MOD]: استخدام 32 مسجلاً (V0 إلى V1F) وتكون بعرض 16-بت (Uint16Array)
+		// [CHIP-16 MOD]: 32 مسجل بعرض 16-بت
 		this.v = new Uint16Array(32);
 		for(var z = 0; z < 32;               z++) { this.v[z] = 0; }
 		for(var z = 0; z < 16;               z++) { this.pattern[z] = 0; }
 
 		// initialize interpreter state
-		this.r = [];
+		this.r = []; // [CHIP-16 MOD]: المكدس سيتسع لـ 256
 		this.pc = 0x200;
 		this.i  = 0;
 		this.dt = 0;
@@ -311,33 +313,43 @@ function Emulator() {
 	}
 
 	this.math = function(x, y, op) {
-		// basic arithmetic opcodes
+		// [CHIP-16 MOD]: 16-bit Arithmetic Logic Unit
 		switch(op) {
 			case 0x0: this.v[x]  = this.v[y]; break;
 			case 0x1: this.v[x] |= this.v[y]; if (this.logicQuirks) this.v[0xF]=0; break;
 			case 0x2: this.v[x] &= this.v[y]; if (this.logicQuirks) this.v[0xF]=0; break;
 			case 0x3: this.v[x] ^= this.v[y]; if (this.logicQuirks) this.v[0xF]=0; break;
-			case 0x4:
-				var t = this.v[x]+this.v[y];
-				this.writeCarry(x, t, (t > 0xFF));
+			case 0x4: // الجمع
+				var t = this.v[x] + this.v[y];
+				this.v[x] = (t & 0xFFFF); // حصر النتيجة في 16-بت
+				this.v[0xF] = (t > 0xFFFF) ? 1 : 0; // Carry flag
+				if (this.vfOrderQuirks) { this.v[x] = (t & 0xFFFF); }
 				break;
-			case 0x5:
-				var t = this.v[x]-this.v[y];
-				this.writeCarry(x, t, (this.v[x] >= this.v[y]));
+			case 0x5: // الطرح (X - Y)
+				var t = this.v[x] - this.v[y];
+				var flag = (this.v[x] >= this.v[y]) ? 1 : 0;
+				this.v[x] = (t & 0xFFFF);
+				this.v[0xF] = flag;
+				if (this.vfOrderQuirks) { this.v[x] = (t & 0xFFFF); }
 				break;
-			case 0x7:
-				var t = this.v[y]-this.v[x];
-				this.writeCarry(x, t, (this.v[y] >= this.v[x]));
+			case 0x7: // الطرح (Y - X)
+				var t = this.v[y] - this.v[x];
+				var flag = (this.v[y] >= this.v[x]) ? 1 : 0;
+				this.v[x] = (t & 0xFFFF);
+				this.v[0xF] = flag;
+				if (this.vfOrderQuirks) { this.v[x] = (t & 0xFFFF); }
 				break;
-			case 0x6:
+			case 0x6: // الإزاحة لليمين
 				if (this.shiftQuirks) { y = x; }
-				var t = this.v[y] >> 1;
-				this.writeCarry(x, t, (this.v[y] & 0x1));
+				var flag = (this.v[y] & 0x1);
+				this.v[x] = (this.v[y] >> 1) & 0xFFFF;
+				this.v[0xF] = flag;
 				break;
-			case 0xE:
+			case 0xE: // الإزاحة لليسار
 				if (this.shiftQuirks) { y = x; }
-				var t = this.v[y] << 1;
-				this.writeCarry(x, t, ((this.v[y] >> 7) & 0x1));
+				var flag = ((this.v[y] >> 15) & 0x1); // [CHIP-16 MOD]: فحص البت رقم 15 بدلاً من 7
+				this.v[x] = (this.v[y] << 1) & 0xFFFF;
+				this.v[0xF] = flag;
 				break;
 			default:
 				haltBreakpoint("unknown math opcode "+op.toString(16).toUpperCase());
